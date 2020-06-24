@@ -1,0 +1,100 @@
+---
+title: "Songs_Project2"
+author: "Marta Fattorel"
+date: "23/6/2020"
+output: html_document
+---
+
+
+
+# THE HIT SONG PREDICTOR
+
+
+## INTRODUCTION
+
+Our work is inspired by the so called *Hit Song Science*, whose pioneer was the music entrepreneur Mike McCready. The Hit Song Science aims at predicting wether a song will be a hit before its distribution, by analysing its audio features through machine learning algorithms. Therefore, our main research question is: Can we accurately predict wether a song will be a hit knowing some of its audio features? To answer this question we have applied some of the most relevant statistical learning models for classification on the dataset available at https://www.kaggle.com/theoverman/the-spotify-hit-predictor-dataset.
+
+
+## DATA EXPLORATION
+
+We decided to consider the most recent data available, which is the dataset for the 10s. After having removed the duplicates, added and removed features, our dataset consists of 6258 songs (releazed between 2010 and 2019) and 18 features. The audio features were extracted through the Spotify Web API, while the *hit*/*flop* categorization (respectively encoded as 1 and 0), is based on the Billboard Hot 100 hits ^[To have more information on each feature see https://developer.spotify.com/documentation/web-api/reference/tracks/get-audio-features/ and https://www.kaggle.com/theoverman/the-spotify-hit-predictor-dataset] 
+
+```{r}
+
+setwd("C:/Users/Marta/Desktop/MARTA/Università_Data-Science/Statistical_models/Project/the-spotify-hit-predictor-dataset")
+
+dataset <- read.csv("dataset-of-10s.csv", header = TRUE)
+summary(dataset)
+
+```
+
+```{r}
+
+sapply(dataset, function(x) sum(is.na(x)))                       # no NA values
+dataset <- dataset[!duplicated(dataset[,c('track', 'artist')]),] # remove duplicates
+options(scipen=999)                                              # turn off scientific notation
+dataset <- within(dataset, rm('uri'))                            # drop uri
+dataset$target <- factor(dataset$target)                         # target into factor
+```
+
+
+*****(Variable distribution part)*****
+
+
+
+## STATISTICAL LEARNING MODELS
+
+In this section we are going to fit several classification models in order to find the best technique(s), meaning the one(s) that minimize(s) the test error rate, and thus give a more accurate hit prediction. 
+
+
+### LOGISTIC REGRESSION 
+
+
+```{r}
+
+glm.fit <- glm(target ~.,  family = binomial, data = dataset[, 3:18])
+summary(glm.fit)
+
+```
+
+From the p-value score it seems that *key*, *speechiness*, *chorus_hit* and *sections* are not correlated with the response variable. Therefore, we can remove these predictors and fit the logistic regression model again. However, since the accuracy of a statistical model is given by the error on unseen data, we perform cross validation. 
+
+In particular, among the cross validation methods, we start with the validation set approach. We randomly split the dataset into two equally sized parts (train and test), we fit the model on the training set to predict the test error rate on the test data.
+```{r}
+
+set.seed(10)
+
+train <- sample(nrow(dataset), nrow(dataset)/2)
+
+lr.fit <- glm(target ~. -key -speechiness -chorus_hit -sections,  family = binomial, subset = train, data = dataset[, 3:18])
+lr.prob <- predict(lr.fit, newdata = dataset[-train,],type = 'response')
+lr.pred <- rep(0, length(lr.prob))
+lr.pred[lr.prob>=0.5] <- 1                      # threshold is 0.5
+table(lr.pred, dataset$target[-train])          # confusion matrix
+with(dataset, mean(lr.pred != target[-train]))  # test error
+
+```
+
+We compare the test error obtained through set validation with the one obtained through 10-fold cross validation. As we can see they are both around 0.19.
+```{r}
+
+set.seed(10)
+
+f <- 10
+shuffled.data <- dataset[sample(nrow(dataset)),]
+folds <- cut(seq(1,nrow(dataset)), breaks = f, labels=FALSE)
+cv.errors <- rep(0, f)
+for(i in 1:f){
+  train <- which(folds!=i, arr.ind=TRUE)
+  lr.fit <- glm(target ~. -key -speechiness -chorus_hit -sections,  family = binomial, subset = train, data = shuffled.data[, 3:18])
+  class <- ifelse(predict(lr.fit, shuffled.data[-train,], type = 'response') >= 0.50, 1,0)
+  fold.error<- ifelse(class!=shuffled.data[-train,]$target, 1, 0)
+  cv.errors[i] <- mean(fold.error)
+}
+mean(cv.errors)
+
+```
+
+
+
+
